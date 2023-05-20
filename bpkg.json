@@ -1,0 +1,8 @@
+{
+  "name": "argbarse",
+  "version": "0.1.0",
+  "description": "An argparse library for Bash, written in pure Bash.",
+  "install": ":''",
+  "scripts": []
+}
+
