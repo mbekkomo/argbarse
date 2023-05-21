@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 
-__bv_major="${BASH_VERSINFO[0]}"
-__bv_minor="${BASH_VERSINFO[1]}"
-(( __bv_major < 4 || __bv_major == 4 && __bv_minor < 3 )) && 
-    : "${error:?"argbarse requires Bash 4.3!"}"
-
-[[ "${BASH_SOURCE[0]}" == "$0" ]] &&
-    : "${error:?"source $0 instead executing it!"}"
-
-__argbarse_init() {
-    local __
+(( BASH_VERSINFO[0] < 4 || BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3 )) && {
+    printf "argbarse requires Bash >= 4.3 in order to run!\n" >&2
+    exit 1
 }
+
+declare -rp SOURCE_VERSION >/dev/null 2>&1 || {
+    printf "Make sure bash-source (source.sh) is loaded!\n" >&2
+    exit 1
+}
+
+# Make sure argbarse is not loaded again
+declare -rp ARGBARSE_LOADED >/dev/null 2>&1 &&
+    return 0
+declare -r ARGBARSE_LOADED=1
+
+# shellcheck disable=SC1091 # we use source.sh
+source "argbarse/init"
