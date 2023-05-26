@@ -46,23 +46,25 @@ task.release() {
 
     local version="$1"
 
-    if ! git rev-parse --verify release >/dev/null 2>&1; then
-        git checkout -b release
-    else
-        git checkout release
-        git merge origin/master
-    fi
+    {
+        if ! git rev-parse --verify release >/dev/null 2>&1; then
+            git checkout -b release
+        else
+            git checkout release
+            git merge origin/main
+        fi
 
-    git add .
-    sed -i 's:/.deps:#/.deps:g' .gitignore
-    git commit -m "release argbarse $version"
-    git tag "v$version"
+        git add .
+        sed -i 's:/.deps:#/.deps:g' .gitignore
+        git commit -m "release argbarse $version"
+        git tag "v$version"
 
-    git push origin release
-    : "$(git remote get-url origin)"
-    : "${_#https://github.com/}"
-    gh release create "v$version" \
-        -R "${_%.git}" changelog.md
+        git push origin release
+        : "$(git remote get-url origin)"
+        : "${_#https://github.com/}"
+        gh release create "v$version" \
+            -R "${_%.git}" changelog.md
 
-    git checkout main
+        git checkout main
+    } || git checkout main
 }
