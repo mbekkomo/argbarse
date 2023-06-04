@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-BOBJECT_VERSION="${BOBJECT_VERSION:-0.8.2}"
+: "${BOBJECT_COMMIT:=778ccd3}"
 
 __command_exist() {
     command -v "$1" >/dev/null 2>&1 ||
@@ -15,8 +15,8 @@ __fetch_bobject() {
     [[ ! -d ".deps/bash-object" ]] && {
         mkdir .deps >/dev/null 2>&1
         git clone https://github.com/bash-bastion/bash-object \
-            -b "v$BOBJECT_VERSION" \
             .deps/bash-object
+        git -C .deps/bash-object checkout  "$BOBJECT_COMMIT"
     }
 
     true
@@ -28,7 +28,7 @@ task.bundle() {
     local bundled
     bundled="$(cat <<EOF
 ##############################################################################
-#= bash-object $BOBJECT_VERSION (https://github.com/bash-bastion/bash-object)
+#= bash-object ${BOBJECT_COMMIT:0:7} (https://github.com/bash-bastion/bash-object)
 
 $(cat .deps/bash-object/pkg/src/{*,**/*}.sh)
 
