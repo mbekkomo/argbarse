@@ -2189,122 +2189,117 @@ bash_object.util.generate_querytree_stack_string() {
 #= eof bash-object
 ##############################################################################
 
-__nd_array.set_array() {
-    local oldifs="$IFS" array_name="$1"
-    local -n array="$array_name"
-    IFS='.'
-    for i in $2; do
-        array["$i"]="$(__mangle "${array_name}_$i" "__nd_array_")"
-        declare -ga "${array[$i]}"=
-        local -n old_array="$array_name"
-        unset -n array
-        local -n array="${old_array[$i]}"
-    done
-    IFS="$oldifs"
-}
-        
-
-
+# __mangle <string> [prefix:-__ab_parser_object_]
 __mangle() {
-    local -a mangled=("${2:-__ab_object_}")
+    local -a mangled=("${2:-__ab_parser_object_}")
+    local oldifs="$IFS"
+    IFS=$'\n'
     for n in $(seq 1 "${#1}"); do
-        local char="${n:$n}"
+        local char="${n:0:$n}"
         mangled+=("$(printf %x "'$char")")
     done
-    local old="$IFS"
     IFS=''
     echo "${mangled[*]}"
-    IFS="$old"
+    IFS="$oldifs"
+}
+
+# __levenshtein <s1> <s2>
+__levenshtein () {
+    local -r target="$1" given="$2"
+    local -r targetLength="${#target}" givenLength="${#given}"
+    local alt cost ins gIndex=0 lowest nextGIndex nextTIndex tIndex
+    local -A leven
+
+    while (( gIndex <= givenLength )); do
+        tIndex=0
+        while (( tIndex <= targetLength )); do
+            (( gIndex == 0 )) && leven["0,$tIndex"]="$tIndex"
+            (( tIndex == 0 )) && leven["$gIndex,0"]="$gIndex"
+            (( tIndex++ ))
+        done
+        (( gIndex++ ))
+    done
+    gIndex=0
+    while (( gIndex < givenLength )); do
+        tIndex=0
+        while (( tIndex < targetLength )); do
+            [[ "${target:tIndex:1}" == "${given:gIndex:1}" ]] && cost=0 || cost=1
+            (( nextTIndex = tIndex + 1 ))
+            (( nextGIndex = gIndex + 1 ))
+            (( del = leven[$gIndex,$nextTIndex] + 1 ))
+            (( ins = leven[$nextGIndex,$tIndex] + 1 ))
+            (( alt = leven[$gIndex,$tIndex] + cost ))
+            (( lowest = ins <= del ? ins : del ))
+            (( lowest = alt <= lowest ? alt : lowest ))
+            leven["$nextGIndex,$nextTIndex"]="$lowest"
+            (( tIndex++ ))
+        done
+        (( gIndex++ ))
+    done
+    printf %d "$lowest"
 }
 
 __min() {
-    printf "%s\n" "$@" | sort -g | head -n1
+    local lowest="$1"; shift
+    for n in "$@"; do
+        (( lowest = n <= lowest ? n : lowest ))
+    done
+    printf %d "$lowest"
 }
 
-__levenshtein() {
-    local s1="$1" s2="$2"
-
-    [[ "$s1" = "$s2" ]] && {
-        printf 0
-        return
-    }
-
-    if (( ! ${#s1} )); then
-        printf "%d" "${#s2}"
-        return
-    elif (( ! ${#s2} )); then
-        printf "%d" "${#s1}"
-        return
-    fi
-
-    # shellcheck disable=SC2034 # used by bobject
-    local -a temp_object=()
-    local -a matrix=() 
-    local -a i_array=()
-    local -a j_array=()
-    bobject set-array --ref matrix ".matrix" temp_object
-    for i in $(seq 0 "${#s1}"); do 
-        bobject set-array --ref matrix ".[\"matrix\"].[$i]" i_array
-        bobject set-string --ref matrix ".[\"matrix\"].[$i].[0]" i
+__get_closest_match() {
+    local -n match_array="$2"
+    local -a levdist
+    for s in "${match_array[@]}"; do
+        levdist+="$(__levenshtein "$1" "$s")"
     done
 
-    for j in $(seq 0 "${#s2}"); do
-        bobject set-array --ref matrix ".[\"matrix\"].[0]" j_array
-        bobject set-string --ref matrix ".[\"matrix\"].[0].[$j]" j
+    local match
+    for i in "${!levdist[@]}"; do
+        (( levdist["$i"] == $(__min "${levdist[@]}") )) && {
+            match="${match_array[$i]}"
+            break
+        }
     done
-
-    for i in $(seq 1 "${#s1}"); do
-        for j in $(seq 1 "${#s2}"); do
-            # shellcheck disable=SC2034 # used by object
-            local cost ij_val
-            if [[ "$(printf %x "'${s1:0:$i}")" = "$(printf %x "'${s2:0:$j}")" ]]; then
-                cost=0
-            else cost=1; fi
-            bobject get-string --value matrix ".[\"matrix\"].[$((i-1))].[$j]"
-            local a=$(( REPLY + 1 ))
-            bobject get-string --value matrix ".[\"matrix\"].[$i].[$((j-1))]"
-            local b=$(( REPLY + 1 ))
-            bobject get-string --value matrix ".[\"matrix\"].[$((i-1))].[$((j-1))]"
-            local c=$(( REPLY + cost ))
-            # shellcheck disable=SC2034 # used by bobject
-            ij_val="$(__min "$a" "$b" "$c")"
-            bobject set-string --ref matrix ".[\"matrix\"].[$i].[$j]" ij_val
-        done
-
-   done
-   bobject get-string --value matrix ".[\"matrix\"].[${#s1}].[${#s2}]"
-   printf %s "$REPLY"
+    printf %s "$match"
 }
 
 argbarse.option() {
     local -A parsed_args=()
-    local n_arg=0
     while (( $# > 0 )); do
         case "$1" in
-        --argn=*)
-            parsed_args[args]="${1#*=}"
+        --choices=*)
+            parsed_args[choices]="${1#*=}"
             ;;
-        --argn)
+        --choices)
             shift
-            parsed_args[args]="$1"
+            parsed_args[choices]="$1"
+            ;;
+        --narg=*)
+            parsed_args[narg]="${1#*=}"
+            ;;
+        --narg)
+            shift
+            parsed_args[narg]="$1"
             ;;
         -*)
             printf -v _ab_func_error "invalid option '%s'" "$1" >&2
             return 1
             ;;
         :*)
-            local -A opts=
+            local -A opts
             : "${1#:}"
             if [[ "${#_}" -eq 2 && "$_" =~ ^\-[a-zA-Z0-9]$ ]]; then
-                opts[short]="${BASH_REMATCH[0]}"
+                opts[short]="${BASH_REMATCH[0]#-}"
             elif [[ "${#_}" -gt 3 && "$_" =~ ^\-\-[a-zA-Z0-9][a-zA-Z0-9_\-][a-zA-Z0-9_\-]*$ ]]; then
-                opts[long]="${BASH_REMATCH[0]}"
+                opts[long]="${BASH_REMATCH[0]#--}"
             else
                 printf -v _ab_func_error "invalid option name '%s'" "${1#:}"
                 return 1
             fi
             ;;
         *)
+            
             local mangled_name
             mangled_name="$(__mangle "$1")"
             local -n parser="$mangled_name"
@@ -2318,7 +2313,34 @@ argbarse.option() {
         return 1
     }
 
-    declare -p opts
+    [[ -n "${opts[short]}" ]] && {
+        local -A options_short_obj
+        bobject set-object --ref parser \
+            '.["'"$mangled_name"'"].["options"].["short"].["'"${opts[short]}"'"]' \
+            options_short_obj 
+        bobject get-array --value parser \
+            ".$mangled_name.options_list.short"
+        local _tmp="${opts[short]}"
+        bobject set-string --ref parser \
+            '.["'"$mangled_name"'"].["options_list"].["short"].['$((${#REPLY}+1))']' \
+            _tmp
+        for p in "${!parsed_args[@]}"; do
+            local v="${parsed_args[$p]}"
+            [[ "$p" = choices ]] && {
+                local oldifs="$IFS"
+                IFS=','
+                read -ra options_choices <<< "$v"
+                IFS="$oldifs"
+                bobject set-array --ref parser \
+                    '.["'"$mangled_name"'"].["options"].["short"].["'"${opts[short]}"'"].["choices"]' \
+                    options_choices
+                continue
+            }
+            bobject set-string --ref parser \
+                '.["'"$mangled_name"'"].["options"].["short"].["'"${opts[short]}"'"].["'"$p"'"]' \
+                v
+        done
+    }
 }
 
 argbarse() {
@@ -2372,4 +2394,34 @@ argbarse() {
         local v="${parsed_args[$k]}"
         bobject set-string --ref parser ".$mangled_name.$k" v
     done
+
+    local -A options options_list flags flags_list
+    bobject set-object --ref parser ".$mangled_name.options" options
+    bobject set-object --ref parser ".$mangled_name.options_list" options_list
+    bobject set-object --ref parser ".$mangled_name.flags" flags
+    bobject set-object --ref parser ".$mangled_name.flags_list" flags_list
+
+    local -A options_short options_long flags_short flags_long
+    bobject set-object --ref parser ".$mangled_name.options.short" options_short
+    bobject set-object --ref parser ".$mangled_name.options.long" options_long
+    bobject set-object --ref parser ".$mangled_name.flags.short" flags_short
+    bobject set-object --ref parser ".$mangled_name.flags.long" flags_long
+
+    local -a options_list_short options_list_long flags_list_short flags_list_long
+    bobject set-array --ref parser \
+        ".$mangled_name.options_list.short" \
+        options_list_short
+    bobject set-array --ref parser \
+        ".$mangled_name.options_list.long" \
+        options_list_long
+    bobject set-array --ref parser \
+        ".$mangled_name.flags_list.short" \
+        flags_list_short 
+    bobject set-array --ref parser \
+        ".$mangled_name.flags_list.long" \
+        flags_list_long
 }
+
+argbarse parser --name "$0" --description "lol" --epilog "lol"
+argbarse.option parser :-a --narg 10 --choices "a,b,c"
+bobject.print "$(__mangle parser)"
