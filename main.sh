@@ -12,76 +12,79 @@ declare -r ARGBARSE_VERSION="0.1.0"
 
 #@BUNDLED_BOBJECT@
 
-
+# __mangle <string> [prefix:-__ab_object_]
 __mangle() {
-    local -a mangled=("__ab_object_")
+    local -a mangled=("${2:-__ab_object_}")
+    local oldifs="$IFS"
+    IFS=$'\n'
     for n in $(seq 1 "${#1}"); do
         local char="${n:0:$n}"
         mangled+=("$(printf %x "'$char")")
     done
-    local old="$IFS"
     IFS=''
     echo "${mangled[*]}"
-    IFS="$old"
+    IFS="$oldifs"
+}
+
+# __levenshtein <s1> <s2>
+__levenshtein () {
+    local -r target="$1" given="$2"
+    local -r targetLength="${#target}" givenLength="${#given}"
+    local alt cost ins gIndex=0 lowest nextGIndex nextTIndex tIndex
+    local -A leven
+
+    while (( gIndex <= givenLength )); do
+        tIndex=0
+        while (( tIndex <= targetLength )); do
+            (( gIndex == 0 )) && leven["0,$tIndex"]="$tIndex"
+            (( tIndex == 0 )) && leven["$gIndex,0"]="$gIndex"
+            (( tIndex++ ))
+        done
+        (( gIndex++ ))
+    done
+    gIndex=0
+    while (( gIndex < givenLength )); do
+        tIndex=0
+        while (( tIndex < targetLength )); do
+            [[ "${target:tIndex:1}" == "${given:gIndex:1}" ]] && cost=0 || cost=1
+            (( nextTIndex = tIndex + 1 ))
+            (( nextGIndex = gIndex + 1 ))
+            (( del = leven[$gIndex,$nextTIndex] + 1 ))
+            (( ins = leven[$nextGIndex,$tIndex] + 1 ))
+            (( alt = leven[$gIndex,$tIndex] + cost ))
+            (( lowest = ins <= del ? ins : del ))
+            (( lowest = alt <= lowest ? alt : lowest ))
+            leven["$nextGIndex,$nextTIndex"]="$lowest"
+            (( tIndex++ ))
+        done
+        (( gIndex++ ))
+    done
+    printf %d "$lowest"
 }
 
 __min() {
-    printf "%s\n" "$@" | sort -g | head -n1
+    local lowest="$1"; shift
+    for n in "$@"; do
+        (( lowest = n <= lowest ? n : lowest ))
+    done
+    printf %d "$lowest"
 }
 
-__levenshtein() {
-    local s1="$1" s2="$2"
-
-    [[ "$s1" = "$s2" ]] && {
-        printf 0
-        return
-    }
-
-    if (( ! ${#s1} )); then
-        printf "%d" "${#s2}"
-        return
-    elif (( ! ${#s2} )); then
-        printf "%d" "${#s1}"
-        return
-    fi
-
-    # shellcheck disable=SC2034 # used by bobject
-    local -a temp_object=()
-    local -a matrix=() 
-    local -a i_array=()
-    local -a j_array=()
-    bobject set-array --ref matrix ".matrix" temp_object
-    for i in $(seq 0 "${#s1}"); do 
-        bobject set-array --ref matrix ".[\"matrix\"].[$i]" i_array
-        bobject set-string --ref matrix ".[\"matrix\"].[$i].[0]" i
+__get_closest_match() {
+    local -n match_array="$2"
+    local -a levdist
+    for s in "${match_array[@]}"; do
+        levdist+="$(__levenshtein "$1" "$s")"
     done
 
-    for j in $(seq 0 "${#s2}"); do
-        bobject set-array --ref matrix ".[\"matrix\"].[0]" j_array
-        bobject set-string --ref matrix ".[\"matrix\"].[0].[$j]" j
+    local match
+    for i in "${!levdist[@]}"; do
+        (( levdist["$i"] == $(__min "${levdist[@]}") )) && {
+            match="${match_array[$i]}"
+            break
+        }
     done
-
-    for i in $(seq 1 "${#s1}"); do
-        for j in $(seq 1 "${#s2}"); do
-            # shellcheck disable=SC2034 # used by object
-            local cost ij_val
-            if [[ "$(printf %x "'${s1:0:$i}")" = "$(printf %x "'${s2:0:$j}")" ]]; then
-                cost=0
-            else cost=1; fi
-            bobject get-string --value matrix ".[\"matrix\"].[$((i-1))].[$j]"
-            local a=$(( REPLY + 1 ))
-            bobject get-string --value matrix ".[\"matrix\"].[$i].[$((j-1))]"
-            local b=$(( REPLY + 1 ))
-            bobject get-string --value matrix ".[\"matrix\"].[$((i-1))].[$((j-1))]"
-            local c=$(( REPLY + cost ))
-            # shellcheck disable=SC2034 # used by bobject
-            ij_val="$(__min "$a" "$b" "$c")"
-            bobject set-string --ref matrix ".[\"matrix\"].[$i].[$j]" ij_val
-        done
-
-   done
-   bobject get-string --value matrix ".[\"matrix\"].[${#s1}].[${#s2}]"
-   printf %s "$REPLY"
+    printf %s "$match"
 }
 
 argbarse.option() {
@@ -181,5 +184,3 @@ argbarse() {
         bobject set-string --ref parser ".$mangled_name.$k" v
     done
 }
-
-__levenshtein hi ih

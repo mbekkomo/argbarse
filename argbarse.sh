@@ -2189,11 +2189,26 @@ bash_object.util.generate_querytree_stack_string() {
 #= eof bash-object
 ##############################################################################
 
+__nd_array.set_array() {
+    local oldifs="$IFS" array_name="$1"
+    local -n array="$array_name"
+    IFS='.'
+    for i in $2; do
+        array["$i"]="$(__mangle "${array_name}_$i" "__nd_array_")"
+        declare -ga "${array[$i]}"=
+        local -n old_array="$array_name"
+        unset -n array
+        local -n array="${old_array[$i]}"
+    done
+    IFS="$oldifs"
+}
+        
+
 
 __mangle() {
-    local -a mangled=("__ab_object_")
+    local -a mangled=("${2:-__ab_object_}")
     for n in $(seq 1 "${#1}"); do
-        local char="${n:0:$n}"
+        local char="${n:$n}"
         mangled+=("$(printf %x "'$char")")
     done
     local old="$IFS"
@@ -2358,5 +2373,3 @@ argbarse() {
         bobject set-string --ref parser ".$mangled_name.$k" v
     done
 }
-
-__levenshtein hi ih
